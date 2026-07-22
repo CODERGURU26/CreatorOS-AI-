@@ -1,0 +1,93 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+}
+
+/* Custom Scrollbar Styling for modern minimal dark aesthetics */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Glassmorphism Presets */
+.glass-panel {
+  background: rgba(17, 17, 17, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.glass-card-hover {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-hover:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -15px rgba(124, 92, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Glowing text & icons */
+.text-glow-cyan {
+  text-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+}
+
+.text-glow-purple {
+  text-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
+}
+
+/* Floating particles background simulator grid */
+.grid-overlay {
+  background-image: radial-gradient(#ffffff04 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Aurora Pulse Animations */
+@keyframes aurora-pulse {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+    opacity: 0.15;
+  }
+  33% {
+    transform: translate(30px, -30px) scale(1.1);
+    opacity: 0.25;
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.95);
+    opacity: 0.2;
+  }
+}
+
+.animate-aurora-1 {
+  animation: aurora-pulse 12s infinite alternate ease-in-out;
+}
+
+.animate-aurora-2 {
+  animation: aurora-pulse 18s infinite alternate-reverse ease-in-out;
+}
+

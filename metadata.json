@@ -1,0 +1,6 @@
+{
+  "name": "CreatorOS AI",
+  "description": "The world's first AI Operating System for Content Creators to run an entire content business autonomously using AI agents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
