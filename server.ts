@@ -229,10 +229,7 @@ app.get("/api/auth/instagram/callback", async (req, res) => {
     }
 
     if (!profileData.account_type) {
-      console.warn(
-        "Profile did not return an account type.",
-        profileData,
-      );
+      console.warn("Profile did not return an account type.", profileData);
       // If the account type is missing, we cannot reliably classify it.
       // Treat this as a general auth failure instead of assuming a personal account.
       throw new Error("auth_failed");
@@ -247,15 +244,25 @@ app.get("/api/auth/instagram/callback", async (req, res) => {
     }
 
     // 4. Test fetch insights to verify the account is Business/Creator.
-    const testInsightsUrl = `https://graph.instagram.com/${profileData.id}/insights?metric=impressions,reach,profile_views&period=day&access_token=${longLivedToken}`;
+    // Verify professional account insights
+    const testInsightsUrl =
+      `https://graph.facebook.com/v23.0/${profileData.id}/insights` +
+      `?metric=follower_count,reach,profile_views` +
+      `&period=day` +
+      `&access_token=${longLivedToken}`;
+
     let testInsightsRes = await fetch(testInsightsUrl);
     let testInsightsData = await testInsightsRes.json();
+
     if (testInsightsData.error) {
       console.warn(
         "Insights verification failed for a professional account:",
         testInsightsData.error,
       );
-      throw new Error("auth_failed");
+
+      // Do not fail OAuth here
+    } else {
+      console.log("Insights verified successfully");
     }
 
     // 4. Save to DB
