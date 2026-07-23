@@ -229,7 +229,20 @@ app.get("/api/auth/instagram/callback", async (req, res) => {
     }
 
     if (!profileData.account_type) {
-      console.warn("Profile does not report an account type, failing Instagram Graph check.", profileData);
+      console.warn(
+        "Profile did not return an account type.",
+        profileData,
+      );
+      // If the account type is missing, we cannot reliably classify it.
+      // Treat this as a general auth failure instead of assuming a personal account.
+      throw new Error("auth_failed");
+    }
+
+    if (profileData.account_type === "PERSONAL") {
+      console.warn(
+        "Instagram account type is PERSONAL, requiring a Professional account.",
+        profileData,
+      );
       throw new Error("not_professional");
     }
 
@@ -239,10 +252,10 @@ app.get("/api/auth/instagram/callback", async (req, res) => {
     let testInsightsData = await testInsightsRes.json();
     if (testInsightsData.error) {
       console.warn(
-        "Insights verification failed (likely not a Professional/Creator account):",
+        "Insights verification failed for a professional account:",
         testInsightsData.error,
       );
-      throw new Error("not_professional");
+      throw new Error("auth_failed");
     }
 
     // 4. Save to DB
