@@ -52,6 +52,8 @@ export interface MetricCard {
   change: string;
   isPositive: boolean;
   trend: number[]; // Sparkline data points
+  status?: "LIVE" | "SYNCING" | "UNAVAILABLE";
+  details?: string;
 }
 
 export interface CalendarEntry {

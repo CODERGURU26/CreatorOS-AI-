@@ -35,11 +35,11 @@ export default function DashboardView({
   // Fetch real analytics if IG account is linked, and fetch CEO Briefing and Agent Runs
   useEffect(() => {
     fetchCeoBriefing();
-    
-    // Fetch real agent runs logs
-    fetch("/api/agent-runs")
-      .then(r => r.json())
-      .then(data => {
+
+    const loadAgentRuns = async () => {
+      try {
+        const response = await fetch("/api/agent-runs");
+        const data = await response.json();
         if (data.runs) {
           const mappedLogs = data.runs.map((run: any) => {
             const date = new Date(run.created_at);
@@ -54,46 +54,119 @@ export default function DashboardView({
               timestamp: timeStr,
               agentId: run.agent_id,
               text: snippet,
-              status: "success"
+              status: run.is_simulated ? "warning" : "success",
             };
           });
           setActiveLogs(mappedLogs);
         }
-      })
-      .catch(err => console.error("Failed to load agent runs", err));
+      } catch (err) {
+        console.error("Failed to load agent runs", err);
+      }
+    };
 
-    if (igAccount) {
-      fetch("/api/analytics")
-        .then(r => r.json())
-        .then(data => {
-          if (data.data) {
-             let impressions = 0;
-             let reach = 0;
-             let profileViews = 0;
-             let hasImpressions = false;
-             let hasReach = false;
-             let hasProfileViews = false;
-             for (const d of data.data) {
-               if (d.metric === 'impressions') { impressions = d.value; hasImpressions = true; }
-               if (d.metric === 'reach') { reach = d.value; hasReach = true; }
-               if (d.metric === 'profile_views') { profileViews = d.value; hasProfileViews = true; }
-             }
-             
-             setMetrics([
-               { id: "followers", label: "Followers", value: (igAccount.followers_count || 0).toLocaleString(), change: "Real", isPositive: true, trend: [10, 20, 15, 25, 35, 45] },
-               { id: "following", label: "Following", value: (igAccount.following_count || 0).toLocaleString(), change: "Real", isPositive: true, trend: [8, 12, 10, 18, 22, 28] },
-               { id: "posts", label: "Posts", value: (igAccount.media_count || 0).toLocaleString(), change: "Real", isPositive: true, trend: [5, 7, 8, 10, 12, 14] },
-               { id: "reach", label: "24h Reach", value: hasReach ? reach.toLocaleString() : "Not enough data yet", change: "Real", isPositive: true, trend: [5, 15, 10, 20, 30, 40] },
-               { id: "impressions", label: "24h Impressions", value: hasImpressions ? impressions.toLocaleString() : "Not enough data yet", change: "Real", isPositive: true, trend: [10, 12, 18, 25, 20, 35] },
-               { id: "profile_views", label: "Profile Views", value: hasProfileViews ? profileViews.toLocaleString() : "Not enough data yet", change: "Real", isPositive: true, trend: [8, 12, 10, 15, 22, 30] }
-             ]);
-          }
-        }).catch(err => console.error("Failed to load analytics", err));
-    } else {
+    const loadAnalytics = async () => {
+      if (!igAccount) return;
+      try {
+        const response = await fetch("/api/analytics/insights");
+        const data = await response.json();
+        if (data.error) {
+          console.error("Analytics load error", data.error);
+          return;
+        }
+
+        const followers = data.accountData?.followers_count ?? igAccount.followers_count ?? 0;
+        const posts = data.accountData?.media_count ?? igAccount.media_count ?? 0;
+        const reachMetric = Array.isArray(data.insightsData?.data)
+          ? data.insightsData.data.find((m: any) => m.name === "reach")
+          : null;
+        const engagedMetric = Array.isArray(data.insightsData?.data)
+          ? data.insightsData.data.find((m: any) => m.name === "accounts_engaged")
+          : null;
+        const profileViewsMetric = Array.isArray(data.insightsData?.data)
+          ? data.insightsData.data.find((m: any) => m.name === "profile_views")
+          : null;
+
+        const reach = reachMetric?.values?.[0]?.value ?? null;
+        const accountsEngaged = engagedMetric?.values?.[0]?.value ?? null;
+        const profileViews = profileViewsMetric?.values?.[0]?.value ?? null;
+        const avgEngagement = followers ? ((data.totalLikes + data.totalComments) / followers) * 100 : null;
+
+        const aiOpsToday = data.mediaItems?.length ?? 0;
+        const bestPost = data.bestMedia ? data.bestMedia.caption || data.bestMedia.id : "Awaiting performance data";
+
         setMetrics([
-           { id: "status", label: "Account Status", value: "Not Linked", change: "Link IG to view stats", isPositive: false, trend: [0, 0, 0, 0, 0] }
+          {
+            id: "followers",
+            label: "Followers",
+            value: followers.toLocaleString(),
+            change: "LIVE",
+            isPositive: true,
+            trend: [followers, followers, followers, followers, followers, followers],
+          },
+          {
+            id: "posts",
+            label: "Posts Published",
+            value: posts.toLocaleString(),
+            change: "LIVE",
+            isPositive: true,
+            trend: [posts, posts, posts, posts, posts, posts],
+          },
+          {
+            id: "reach",
+            label: "Account Reach (7d)",
+            value: reach !== null ? reach.toLocaleString() : "Insufficient data",
+            change: "LIVE",
+            isPositive: reach !== null,
+            trend: [reach || 0, reach || 0, reach || 0, reach || 0, reach || 0, reach || 0],
+          },
+          {
+            id: "accounts_engaged",
+            label: "Accounts Engaged",
+            value: accountsEngaged !== null ? accountsEngaged.toLocaleString() : "Insufficient data",
+            change: "LIVE",
+            isPositive: accountsEngaged !== null,
+            trend: [accountsEngaged || 0, accountsEngaged || 0, accountsEngaged || 0, accountsEngaged || 0, accountsEngaged || 0, accountsEngaged || 0],
+          },
+          {
+            id: "profile_views",
+            label: "Profile Views",
+            value: profileViews !== null ? profileViews.toLocaleString() : "Insufficient data",
+            change: "LIVE",
+            isPositive: profileViews !== null,
+            trend: [profileViews || 0, profileViews || 0, profileViews || 0, profileViews || 0, profileViews || 0, profileViews || 0],
+          },
+          {
+            id: "avg_engagement",
+            label: "Average Engagement",
+            value: avgEngagement !== null ? `${avgEngagement.toFixed(2)}%` : "Insufficient data",
+            change: "LIVE",
+            isPositive: avgEngagement !== null,
+            trend: [avgEngagement || 0, avgEngagement || 0, avgEngagement || 0, avgEngagement || 0, avgEngagement || 0, avgEngagement || 0],
+          },
+          {
+            id: "ai_ops",
+            label: "AI Operations Today",
+            value: aiOpsToday.toLocaleString(),
+            change: "LIVE",
+            isPositive: true,
+            trend: [aiOpsToday, aiOpsToday, aiOpsToday, aiOpsToday, aiOpsToday, aiOpsToday],
+          },
+          {
+            id: "best_post",
+            label: "Best Performing Post",
+            value: bestPost,
+            change: "LIVE",
+            isPositive: true,
+            trend: [0, 0, 0, 0, 0, 0],
+          },
         ]);
-    }
+      } catch (err) {
+        console.error("Failed to load analytics", err);
+      }
+    };
+
+    loadAgentRuns();
+    loadAnalytics();
   }, [onboardingData.creatorType, igAccount]);
 
   // Call the server API endpoint for real Gemini generated executive briefing
@@ -191,14 +264,21 @@ export default function DashboardView({
             className="p-5 rounded-2xl glass-card glass-card-hover flex flex-col justify-between h-36 relative group"
           >
             <div>
-              <span className="text-[10px] text-[#A1A1AA] font-mono block uppercase tracking-wider">
-                {m.label}
-              </span>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="text-[10px] text-[#A1A1AA] font-mono block uppercase tracking-wider">
+                  {m.label}
+                </span>
+                {m.status ? (
+                  <span className="text-[9px] font-semibold uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/5 text-white/80 border border-white/10">
+                    {m.status}
+                  </span>
+                ) : null}
+              </div>
               <span className="text-2xl font-extrabold tracking-tight text-white mt-1.5 block font-display">
                 {m.value}
               </span>
             </div>
-            
+
             <div className="flex items-end justify-between pt-2">
               <span
                 className={`text-[10px] font-mono font-semibold ${

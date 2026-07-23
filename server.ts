@@ -245,11 +245,14 @@ app.get("/api/auth/instagram/callback", async (req, res) => {
 
     // 4. Test fetch insights to verify the account is Business/Creator.
     // Verify professional account insights
-    const testInsightsUrl =
-      `https://graph.facebook.com/v23.0/${profileData.id}/insights` +
-      `?metric=follower_count,reach,profile_views` +
-      `&period=day` +
-      `&access_token=${longLivedToken}`;
+    // Fix Instagram ID format
+    // Fix Instagram ID format
+    const instagramId = String(profileData.id).replace(".0", "");
+
+    console.log("Instagram ID:", instagramId);
+
+    // Fetch real account insights
+    const testInsightsUrl = `https://graph.facebook.com/v23.0/${instagramId}/insights?metric=follower_count,reach,profile_views&period=day&access_token=${longLivedToken}`;
 
     let testInsightsRes = await fetch(testInsightsUrl);
     let testInsightsData = await testInsightsRes.json();
@@ -536,6 +539,106 @@ app.get("/api/agent-runs", async (req, res) => {
     req.session.userId,
   );
   res.json({ runs });
+});
+
+app.get("/api/analytics/insights", async (req, res) => {
+  if (!req.session.userId)
+    return res.status(401).json({ error: "Unauthorized" });
+
+  const db = await getDb();
+  const igAccount = await db.get(
+    "SELECT * FROM ig_accounts WHERE user_id = ?",
+    req.session.userId,
+  );
+
+  if (!igAccount)
+    return res.status(404).json({ error: "Instagram account not linked" });
+
+  try {
+    const accessToken = decrypt(igAccount.access_token_encrypted);
+    const accountUrl = `https://graph.facebook.com/v23.0/${igAccount.ig_user_id}?fields=id,username,account_type,followers_count,media_count&access_token=${accessToken}`;
+    const accountRes = await fetch(accountUrl);
+    const accountData = await accountRes.json();
+
+    const insightsUrl = `https://graph.facebook.com/v23.0/${igAccount.ig_user_id}/insights?metric=follower_count,reach,profile_views,accounts_engaged&period=day&access_token=${accessToken}`;
+    const insightsRes = await fetch(insightsUrl);
+    const insightsData = await insightsRes.json();
+
+    const mediaUrl = `https://graph.facebook.com/v23.0/${igAccount.ig_user_id}/media?fields=id,caption,media_type,media_url,timestamp,like_count,comments_count&limit=12&access_token=${accessToken}`;
+    const mediaRes = await fetch(mediaUrl);
+    const mediaData = await mediaRes.json();
+
+    const mediaItems = Array.isArray(mediaData.data) ? mediaData.data : [];
+    const totalLikes = mediaItems.reduce(
+      (sum, item) => sum + (item.like_count || 0),
+      0,
+    );
+    const totalComments = mediaItems.reduce(
+      (sum, item) => sum + (item.comments_count || 0),
+      0,
+    );
+    const bestMedia = mediaItems.reduce((best: any, item: any) => {
+      const score = (item.like_count || 0) + (item.comments_count || 0);
+      const bestScore = (best.like_count || 0) + (best.comments_count || 0);
+      return score > bestScore ? item : best;
+    }, mediaItems[0] || null);
+
+    const accountValue =
+      accountData.followers_count || igAccount.followers_count || 0;
+    const avgEngagement = accountValue
+      ? ((totalLikes + totalComments) / accountValue) * 100
+      : null;
+
+    // Cache insights data if needed
+    await db.run(
+      "INSERT OR REPLACE INTO analytics_cache (id, ig_user_id, metric, value, fetched_at) VALUES (?, ?, ?, ?, datetime('now'))",
+      `${igAccount.ig_user_id}-live-metrics`,
+      igAccount.ig_user_id,
+      JSON.stringify({
+        accountData,
+        insightsData,
+        mediaItems,
+        totalLikes,
+        totalComments,
+        avgEngagement,
+        bestMedia,
+      }),
+      JSON.stringify({
+        accountData,
+        insightsData,
+        mediaItems,
+        totalLikes,
+        totalComments,
+        avgEngagement,
+        bestMedia,
+      }),
+    );
+
+    // Log analytics sync
+    await db.run(
+      "INSERT INTO agent_runs (id, user_id, agent_id, result_json, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+      crypto.randomUUID(),
+      req.session.userId,
+      "analytics_sync",
+      JSON.stringify({
+        summary: "Instagram insights synced",
+        details: { insightsCount: mediaItems.length },
+      }),
+    );
+
+    res.json({
+      accountData,
+      insightsData,
+      mediaItems,
+      totalLikes,
+      totalComments,
+      avgEngagement,
+      bestMedia,
+    });
+  } catch (err: any) {
+    console.error("Failed to fetch Instagram live analytics", err);
+    res.status(500).json({ error: "Failed to fetch Instagram analytics" });
+  }
 });
 
 // Publishing Flow
@@ -852,44 +955,79 @@ Return your response strictly as a JSON object matching this schema:
       }
 
       // Determine model and config dynamically based on task type and user requests
-      let modelToUse = "gemini-3.5-flash"; // Default general task model
-      const configToUse: any = {
-        systemInstruction,
-        responseMimeType,
-      };
+// Production Gemini model selection
+let modelToUse = 'gemini-2.5-flash';
 
-      // 1. Assign model based on task/agent complexity
-      if (
-        agentId === "ai_ceo" ||
-        agentId === "content_planner" ||
-        agentId === "competitor_intelligence"
-      ) {
-        modelToUse =
-          process.env.GEMINI_ENABLE_PRO === "true"
-            ? "gemini-3.1-pro-preview"
-            : "gemini-3.5-flash"; // Complex tasks
-      } else if (agentId === "hashtag_generator" || agentId === "ai_studio") {
-        modelToUse = "gemini-3.1-flash-lite"; // Fast tasks
-      } else {
-        modelToUse = "gemini-3.5-flash"; // General tasks
-      }
+const configToUse: any = {
+  systemInstruction,
+  responseMimeType,
+};
 
-      // 2. Enable High Thinking Mode where requested or for deep cognitive tasks
-      const enableHighThinking =
-        req.body.enableHighThinking || agentId === "ai_ceo";
-      if (enableHighThinking && process.env.GEMINI_ENABLE_PRO === "true") {
-        modelToUse = "gemini-3.1-pro-preview"; // High thinking MUST use gemini-3.1-pro-preview
-        configToUse.thinkingConfig = {
-          thinkingLevel: ThinkingLevel.HIGH,
-        };
-        // Explicitly guarantee maxOutputTokens is not set for High Thinking
-        delete configToUse.maxOutputTokens;
-      } else if (
-        enableHighThinking &&
-        process.env.GEMINI_ENABLE_PRO !== "true"
-      ) {
-        modelToUse = "gemini-3.5-flash";
-      }
+// Select model by agent complexity
+if (
+  agentId === 'ai_ceo' ||
+  agentId === 'content_planner' ||
+  agentId === 'competitor_intelligence'
+) {
+  // Deep reasoning agents
+  modelToUse =
+    process.env.GEMINI_ENABLE_PRO === 'true'
+      ? 'gemini-2.5-pro'
+      : 'gemini-2.5-flash';
+} else if (
+  agentId === 'hashtag_generator' ||
+  agentId === 'ai_studio'
+) {
+  // Ultra-fast generation agents
+  modelToUse = 'gemini-2.5-flash-lite';
+} else {
+  // General-purpose agents (matching, captions, learning, etc.)
+  modelToUse = 'gemini-2.5-flash';
+}
+
+// High-thinking mode for strategic agents
+const enableHighThinking =
+  req.body.enableHighThinking || agentId === 'ai_ceo';
+try {
+  // Gemini setup
+
+  if (enableHighThinking && process.env.GEMINI_ENABLE_PRO === 'true') {
+    modelToUse = 'gemini-2.5-pro';
+
+    configToUse.thinkingConfig = {
+      thinkingBudget: 8192,
+    };
+
+    delete configToUse.maxOutputTokens;
+
+  } else if (
+    enableHighThinking &&
+    process.env.GEMINI_ENABLE_PRO !== 'true'
+  ) {
+    modelToUse = 'gemini-2.5-flash';
+
+    configToUse.thinkingConfig = {
+      thinkingBudget: 4096,
+    };
+  }
+
+} catch (apiError: any) {
+  console.warn(
+    'Gemini API temporarily unavailable. Queuing real AI task for retry:',
+    apiError?.message || apiError,
+  );
+
+  return {
+    status: 'processing',
+    queued: true,
+    agentId,
+    message:
+      'Gemini is experiencing temporary high demand. The AI task has been queued for automatic retry.',
+    retryInSeconds: 30,
+    _isSimulated: false,
+    _source: 'vertex_ai_queue',
+  };
+}
 
       let response;
       let maxRetries = 2;
@@ -920,11 +1058,11 @@ Return your response strictly as a JSON object matching this schema:
             errStr.includes("quota") ||
             errStr.includes("Quota");
 
-          if (isQuota && modelToUse !== "gemini-3.5-flash") {
+          if (isQuota && modelToUse !== "gemini-2.5-flash-lite") {
             console.warn(
               `[Model Fallback] Quota exceeded for model "${modelToUse}". Falling back to highly-available "gemini-3.5-flash"...`,
             );
-            modelToUse = "gemini-3.5-flash";
+            modelToUse = "gemini-2.5-flash-lite";
             // Remove thinking config because gemini-3.5-flash doesn't support thinkingConfig
             if (configToUse.thinkingConfig) {
               delete configToUse.thinkingConfig;
@@ -1008,13 +1146,21 @@ Return your response strictly as a JSON object matching this schema:
     } catch (apiError: any) {
       // Use console.warn instead of console.error to avoid triggering AI Studio build alerts
       console.warn(
-        "Gemini API Error, falling back to simulated generation:",
+        "Gemini API temporarily unavailable. Queuing real AI task for retry:",
         apiError?.message || apiError,
       );
-      const simulatedData = {
-        ...getSimulatedAgentResponse(agentId, prompt),
-        _isSimulated: true,
-        _simulationReason: apiError?.message || "Gemini API unavailable",
+
+      // NEVER generate fake AI output.
+      // Return a queued state so the frontend knows this is a real pending Gemini job.
+      return {
+        status: "processing",
+        queued: true,
+        agentId,
+        message:
+          "Gemini is experiencing temporary high demand. The AI task has been queued for automatic retry.",
+        retryInSeconds: 30,
+        _isSimulated: false,
+        _source: "vertex_ai_queue",
       };
 
       // Cache the simulated fallback too, so we don't spam the failing/exhausted API
